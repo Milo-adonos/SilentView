@@ -7,8 +7,8 @@ interface AuthContextType {
   session: Session | null;
   loading: boolean;
   isPremium: boolean;
-  signUp: (email: string, password: string) => Promise<{ error: string | null }>;
-  signIn: (email: string, password: string) => Promise<{ error: string | null }>;
+  signUp: (email: string, password: string) => Promise<{ error: string | null; user: User | null }>;
+  signIn: (email: string, password: string) => Promise<{ error: string | null; user: User | null }>;
   signOut: () => Promise<void>;
   checkPremiumStatus: () => Promise<boolean>;
 }
@@ -71,36 +71,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [user]);
 
-  const signUp = async (email: string, password: string): Promise<{ error: string | null }> => {
-    const { error } = await supabase.auth.signUp({
+  const signUp = async (email: string, password: string): Promise<{ error: string | null; user: User | null }> => {
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
     });
 
     if (error) {
       if (error.message.includes('already registered')) {
-        return { error: 'Cet email est déjà utilisé' };
+        return { error: 'Cet email est déjà utilisé', user: null };
       }
-      return { error: error.message };
+      return { error: error.message, user: null };
     }
 
-    return { error: null };
+    return { error: null, user: data.user };
   };
 
-  const signIn = async (email: string, password: string): Promise<{ error: string | null }> => {
-    const { error } = await supabase.auth.signInWithPassword({
+  const signIn = async (email: string, password: string): Promise<{ error: string | null; user: User | null }> => {
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
     if (error) {
       if (error.message.includes('Invalid login credentials')) {
-        return { error: 'Email ou mot de passe incorrect' };
+        return { error: 'Email ou mot de passe incorrect', user: null };
       }
-      return { error: error.message };
+      return { error: error.message, user: null };
     }
 
-    return { error: null };
+    return { error: null, user: data.user };
   };
 
   const signOut = async () => {

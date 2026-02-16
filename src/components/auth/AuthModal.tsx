@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { X, Mail, Lock, Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../lib/AuthContext';
+import { User } from '@supabase/supabase-js';
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (user: User) => void;
   initialMode?: 'signin' | 'signup';
 }
 
@@ -41,18 +42,18 @@ export default function AuthModal({ isOpen, onClose, onSuccess, initialMode = 's
 
     try {
       if (mode === 'signup') {
-        const { error } = await signUp(email, password);
+        const { error, user } = await signUp(email, password);
         if (error) {
           setError(error);
-        } else {
-          onSuccess();
+        } else if (user) {
+          onSuccess(user);
         }
       } else {
-        const { error } = await signIn(email, password);
+        const { error, user } = await signIn(email, password);
         if (error) {
           setError(error);
-        } else {
-          onSuccess();
+        } else if (user) {
+          onSuccess(user);
         }
       }
     } catch {

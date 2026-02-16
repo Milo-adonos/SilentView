@@ -6,6 +6,7 @@ import { GeneratedSignals } from '../lib/signalGenerator';
 import { redirectToUnlockCheckout, checkPaymentCancelled, clearPaymentParams } from '../lib/stripe';
 import { useAuth } from '../lib/AuthContext';
 import { ArrowLeft, Search, CreditCard, Loader2, AlertCircle } from 'lucide-react';
+import { User } from '@supabase/supabase-js';
 
 interface LocationState {
   targetUsername: string;
@@ -61,21 +62,21 @@ export default function DashboardFreePage() {
     
     // If user is already logged in, go directly to payment
     if (user) {
-      handlePayment();
+      handlePayment(user);
     } else {
       // Show auth modal first
       setShowAuthModal(true);
     }
   };
 
-  const handleAuthSuccess = async () => {
+  const handleAuthSuccess = async (authenticatedUser: User) => {
     setShowAuthModal(false);
-    // After successful auth, redirect to payment
-    handlePayment();
+    // After successful auth, redirect to payment with the user data directly
+    handlePayment(authenticatedUser);
   };
 
-  const handlePayment = async () => {
-    if (!user) {
+  const handlePayment = async (payingUser: User) => {
+    if (!payingUser) {
       setPaymentError('Vous devez être connecté pour continuer');
       return;
     }
@@ -84,7 +85,7 @@ export default function DashboardFreePage() {
     setPaymentError(null);
 
     try {
-      await redirectToUnlockCheckout(user.id, user.email || '');
+      await redirectToUnlockCheckout(payingUser.id, payingUser.email || '');
       // The function will redirect, so we won't reach here unless there's an error
     } catch (error) {
       console.error('Payment error:', error);
