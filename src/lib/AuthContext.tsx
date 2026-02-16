@@ -1,0 +1,133 @@
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { User, Session } from '@supabase/supabase-js';
+import { supabase } from './supabase';
+
+interface AuthContextType {
+  user: User | null;
+  session: Session | null;
+  loading: boolean;
+  isPremium: boolean;
+  signUp: (email: string, password: string) => Promise<{ error: string | null }>;
+  signIn: (email: string, password: string) => Promise<{ error: string | null }>;
+  signOut: () => Promise<void>;
+  checkPremiumStatus: () => Promise<boolean>;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [isPremium, setIsPremium] = useState(false);
+
+  const checkPremiumStatus = async (): Promise<boolean> => {
+    if (!user) return false;
+
+    try {
+      const { data } = await supabase
+        .from('premium_subscriptions')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('status', 'active')
+        .maybeSingle();
+
+      const hasPremium = !!data;
+      setIsPremium(hasPremium);
+      return hasPremium;
+    } catch (error) {
+      console.error('Failed to check premium status:', error);
+      setIsPremium(false);
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        setSession(session);
+        setUser(session?.user ?? null);
+        setLoading(false);
+      })
+      .catch((error) => {
+        console.error('Failed to get session:', error);
+        setLoading(false);
+      });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (user) {
+      checkPremiumStatus();
+    } else {
+      setIsPremium(false);
+    }
+  }, [user]);
+
+  const signUp = async (email: string, password: string): Promise<{ error: string | null }> => {
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+    });
+
+    if (error) {
+      if (error.message.includes('already registered')) {
+        return { error: 'Cet email est déjà utilisé' };
+      }
+      return { error: error.message };
+    }
+
+    return { error: null };
+  };
+
+  const signIn = async (email: string, password: string): Promise<{ error: string | null }> => {
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      if (error.message.includes('Invalid login credentials')) {
+        return { error: 'Email ou mot de passe incorrect' };
+      }
+      return { error: error.message };
+    }
+
+    return { error: null };
+  };
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    setIsPremium(false);
+  };
+
+  return (
+    <AuthContext.Provider value={{
+      user,
+      session,
+      loading,
+      isPremium,
+      signUp,
+      signIn,
+      signOut,
+      checkPremiumStatus,
+    }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+}
