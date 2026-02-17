@@ -60,8 +60,8 @@ Deno.serve(async (req: Request) => {
     }
 
     const baseUrl = req.headers.get("origin") || "http://localhost:5173";
-    const successUrl = `${baseUrl}/?payment=success&session_id=${sessionId}&payment_type=${paymentType}`;
-    const cancelUrl = `${baseUrl}/?payment=cancelled`;
+    const successUrl = `${baseUrl}/dashboard?payment=success&session_id=${sessionId}&payment_type=${paymentType}`;
+    const cancelUrl = `${baseUrl}/dashboardfree?payment=cancelled`;
 
     const checkoutSession = await fetch("https://api.stripe.com/v1/checkout/sessions", {
       method: "POST",
