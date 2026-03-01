@@ -73,6 +73,7 @@ Deno.serve(async (req: Request) => {
         "mode": paymentType === "one_time" ? "payment" : "subscription",
         "success_url": successUrl,
         "cancel_url": cancelUrl,
+        "allow_promotion_codes": "true",
         "line_items[0][price]": priceId,
         "line_items[0][quantity]": "1",
         "metadata[session_id]": sessionId,
