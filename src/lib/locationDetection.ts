@@ -125,8 +125,8 @@ async function tryIpGeolocation(): Promise<DetectedLocation | null> {
 }
 
 export async function detectLocationFromIP(): Promise<DetectedLocation> {
-  // Essayer plusieurs services dans l'ordre
-  const services = [tryIpApi, tryIpApiCo, tryIpGeolocation];
+  // Essayer plusieurs services dans l'ordre (ipapi.co en premier car plus fiable en HTTPS)
+  const services = [tryIpApiCo, tryIpGeolocation, tryIpApi];
 
   for (const service of services) {
     const result = await service();
