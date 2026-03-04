@@ -1,23 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowRight, Shield, ArrowLeft, Sparkles, Scan, CheckCircle, MapPin, Search, X } from 'lucide-react';
+import { ArrowRight, Shield, ArrowLeft, Sparkles, Scan, CheckCircle, MapPin } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
+import { detectLocationFromIP, DetectedLocation } from '../../lib/locationDetection';
 
 interface Props {
   onSubmit: (ownUsername: string, targetUsername: string, network: 'tiktok' | 'instagram') => void;
   onBack: () => void;
 }
 
-type Step = 'network' | 'own' | 'target' | 'city' | 'detecting';
+type Step = 'network' | 'own' | 'target' | 'location' | 'detecting';
 type SocialNetwork = 'tiktok' | 'instagram' | null;
-
-interface CityResult {
-  id: string;
-  name: string;
-  fullName: string;
-  latitude: number;
-  longitude: number;
-  country: string;
-}
 
 function FloatingOrbs() {
   return (
@@ -43,8 +35,8 @@ function RadarPulse() {
 
 function StepIndicator({ currentStep, showDetecting }: { currentStep: Step; showDetecting: boolean }) {
   const steps = showDetecting
-    ? ['network', 'own', 'target', 'city', 'detecting'] as const
-    : ['network', 'own', 'target', 'city'] as const;
+    ? ['network', 'own', 'target', 'location', 'detecting'] as const
+    : ['network', 'own', 'target', 'location'] as const;
   const currentIndex = steps.indexOf(currentStep as typeof steps[number]);
 
   return (
@@ -76,7 +68,7 @@ export default function UsernameInput({ onSubmit, onBack }: Props) {
   const [socialNetwork, setSocialNetwork] = useState<SocialNetwork>(null);
   const [ownUsername, setOwnUsername] = useState('');
   const [targetUsername, setTargetUsername] = useState('');
-  const [selectedCity, setSelectedCity] = useState<CityResult | null>(null);
+  const [detectedLocation, setDetectedLocation] = useState<DetectedLocation | null>(null);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [verificationComplete, setVerificationComplete] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
@@ -104,16 +96,16 @@ export default function UsernameInput({ onSubmit, onBack }: Props) {
   const handleTargetSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (targetUsername.trim() && socialNetwork) {
-      transitionTo('city');
+      transitionTo('location');
     }
   };
 
-  const handleCitySelect = (city: CityResult) => {
-    setSelectedCity(city);
+  const handleLocationDetected = (location: DetectedLocation) => {
+    setDetectedLocation(location);
   };
 
-  const handleCityConfirm = () => {
-    if (selectedCity) {
+  const handleLocationConfirm = () => {
+    if (detectedLocation) {
       transitionTo('detecting');
     }
   };
@@ -132,13 +124,13 @@ export default function UsernameInput({ onSubmit, onBack }: Props) {
       setSocialNetwork(null);
     } else if (step === 'target') {
       transitionTo('own');
-    } else if (step === 'city') {
-      setSelectedCity(null);
+    } else if (step === 'location') {
+      setDetectedLocation(null);
       transitionTo('target');
     } else if (step === 'detecting') {
       setVerificationComplete(false);
       setIsVerifying(false);
-      transitionTo('city');
+      transitionTo('location');
     }
   };
 
@@ -147,7 +139,7 @@ export default function UsernameInput({ onSubmit, onBack }: Props) {
       <FloatingOrbs />
       <RadarPulse />
 
-      {step !== 'detecting' && (
+      {step !== 'detecting' && step !== 'location' && (
         <div className="absolute top-6 left-6 z-20">
           <button
             onClick={step === 'network' ? onBack : goBack}
@@ -189,12 +181,13 @@ export default function UsernameInput({ onSubmit, onBack }: Props) {
             />
           )}
 
-          {step === 'city' && (
-            <CitySelectionStep
+          {step === 'location' && (
+            <LocationDetectionStep
               network={socialNetwork}
-              selectedCity={selectedCity}
-              onCitySelect={handleCitySelect}
-              onConfirm={handleCityConfirm}
+              targetUsername={targetUsername.trim().replace('@', '')}
+              detectedLocation={detectedLocation}
+              onLocationDetected={handleLocationDetected}
+              onConfirm={handleLocationConfirm}
             />
           )}
 
@@ -413,21 +406,28 @@ function TargetUsernameStep({ network, value, onChange, onSubmit }: UsernameStep
   );
 }
 
-interface CitySelectionStepProps {
+interface LocationDetectionStepProps {
   network: SocialNetwork;
-  selectedCity: CityResult | null;
-  onCitySelect: (city: CityResult) => void;
+  targetUsername: string;
+  detectedLocation: DetectedLocation | null;
+  onLocationDetected: (location: DetectedLocation) => void;
   onConfirm: () => void;
 }
 
-function CitySelectionStep({ network, selectedCity, onCitySelect, onConfirm }: CitySelectionStepProps) {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<CityResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [isFocused, setIsFocused] = useState(false);
+function LocationDetectionStep({ 
+  network, 
+  targetUsername,
+  detectedLocation, 
+  onLocationDetected, 
+  onConfirm 
+}: LocationDetectionStepProps) {
+  const [progress, setProgress] = useState(0);
+  const [currentMessage, setCurrentMessage] = useState(0);
+  const [isDetecting, setIsDetecting] = useState(true);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markerRef = useRef<mapboxgl.Marker | null>(null);
+  const locationRef = useRef<DetectedLocation | null>(null);
   const networkColor = network === 'tiktok' ? 'rose' : 'pink';
 
   const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
@@ -445,7 +445,6 @@ function CitySelectionStep({ network, selectedCity, onCitySelect, onConfirm }: C
       attributionControl: false,
     });
 
-    map.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
     mapRef.current = map;
 
     return () => {
@@ -455,173 +454,165 @@ function CitySelectionStep({ network, selectedCity, onCitySelect, onConfirm }: C
   }, [mapboxToken]);
 
   useEffect(() => {
-    if (!selectedCity || !mapRef.current) return;
+    if (detectedLocation) return;
 
-    mapRef.current.flyTo({
-      center: [selectedCity.longitude, selectedCity.latitude],
-      zoom: 12,
-      duration: 1500,
+    const startTime = Date.now();
+    const totalDuration = 10000;
+    let currentProgress = 0;
+    let isComplete = false;
+
+    const phaseTimings = [
+      { end: 2500, targetProgress: 25, message: 0 },
+      { end: 5000, targetProgress: 50, message: 1 },
+      { end: 7500, targetProgress: 75, message: 2 },
+      { end: 10000, targetProgress: 100, message: 3 },
+    ];
+
+    detectLocationFromIP().then(location => {
+      locationRef.current = location;
     });
 
-    if (markerRef.current) {
-      markerRef.current.remove();
-    }
+    const intervalId = setInterval(() => {
+      if (isComplete) return;
 
-    const el = document.createElement('div');
-    el.className = 'city-marker';
-    el.innerHTML = `
-      <div class="w-8 h-8 bg-gradient-to-br from-rose-500 to-orange-500 rounded-full flex items-center justify-center shadow-lg shadow-rose-500/50 animate-pulse">
-        <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
-          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
-        </svg>
-      </div>
-    `;
+      const elapsed = Date.now() - startTime;
 
-    markerRef.current = new mapboxgl.Marker(el)
-      .setLngLat([selectedCity.longitude, selectedCity.latitude])
-      .addTo(mapRef.current);
-  }, [selectedCity]);
+      if (elapsed >= totalDuration) {
+        isComplete = true;
+        setProgress(100);
+        setCurrentMessage(3);
+        clearInterval(intervalId);
 
-  const searchCities = async (query: string) => {
-    if (!query.trim() || !mapboxToken) {
-      setSearchResults([]);
-      return;
-    }
+        setTimeout(() => {
+          if (locationRef.current) {
+            onLocationDetected(locationRef.current);
+            
+            if (mapRef.current) {
+              mapRef.current.flyTo({
+                center: [locationRef.current.longitude, locationRef.current.latitude],
+                zoom: 11,
+                duration: 2000,
+              });
 
-    setIsSearching(true);
-    try {
-      const response = await fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${mapboxToken}&types=place,locality&language=fr&limit=5`
-      );
-      
-      if (!response.ok) throw new Error('Search failed');
-      
-      const data = await response.json();
-      
-      const cities: CityResult[] = data.features.map((feature: {
-        id: string;
-        text: string;
-        place_name: string;
-        center: [number, number];
-        context?: Array<{ id: string; text: string }>;
-      }) => {
-        const country = feature.context?.find((c: { id: string }) => c.id.startsWith('country'))?.text || '';
-        return {
-          id: feature.id,
-          name: feature.text,
-          fullName: feature.place_name,
-          latitude: feature.center[1],
-          longitude: feature.center[0],
-          country,
-        };
-      });
-      
-      setSearchResults(cities);
-    } catch (error) {
-      console.error('City search error:', error);
-      setSearchResults([]);
-    } finally {
-      setIsSearching(false);
-    }
-  };
+              setTimeout(() => {
+                if (markerRef.current) {
+                  markerRef.current.remove();
+                }
 
-  useEffect(() => {
-    const debounceTimer = setTimeout(() => {
-      searchCities(searchQuery);
-    }, 300);
+                const el = document.createElement('div');
+                el.innerHTML = `
+                  <div class="w-10 h-10 bg-gradient-to-br from-rose-500 to-orange-500 rounded-full flex items-center justify-center shadow-lg shadow-rose-500/50 animate-pulse border-2 border-white">
+                    <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+                    </svg>
+                  </div>
+                `;
 
-    return () => clearTimeout(debounceTimer);
+                markerRef.current = new mapboxgl.Marker(el)
+                  .setLngLat([locationRef.current!.longitude, locationRef.current!.latitude])
+                  .addTo(mapRef.current!);
+              }, 1500);
+            }
+          }
+          setIsDetecting(false);
+        }, 500);
+        return;
+      }
+
+      let currentPhaseIndex = 0;
+      for (let i = 0; i < phaseTimings.length; i++) {
+        if (elapsed < phaseTimings[i].end) {
+          currentPhaseIndex = i;
+          break;
+        }
+      }
+
+      const currentPhase = phaseTimings[currentPhaseIndex];
+      const prevPhase = currentPhaseIndex > 0 ? phaseTimings[currentPhaseIndex - 1] : { end: 0, targetProgress: 0 };
+
+      const phaseElapsed = elapsed - prevPhase.end;
+      const phaseDuration = currentPhase.end - prevPhase.end;
+      const phaseProgressRange = currentPhase.targetProgress - prevPhase.targetProgress;
+
+      const phaseRatio = Math.min(phaseElapsed / phaseDuration, 1);
+      const easedRatio = 1 - Math.pow(1 - phaseRatio, 2);
+
+      const newProgress = prevPhase.targetProgress + (phaseProgressRange * easedRatio);
+      const fluctuation = Math.sin(elapsed / 200) * 0.5;
+      const finalProgress = Math.max(newProgress + fluctuation, currentProgress);
+
+      currentProgress = Math.min(finalProgress, 100);
+      setProgress(currentProgress);
+      setCurrentMessage(currentPhase.message);
+    }, 50);
+
+    return () => {
+      clearInterval(intervalId);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery]);
+  }, []);
 
-  const handleCityClick = (city: CityResult) => {
-    onCitySelect(city);
-    setSearchQuery('');
-    setSearchResults([]);
-    setIsFocused(false);
-  };
+  const scanMessages = [
+    'Connexion au réseau...',
+    'Analyse de l\'adresse IP...',
+    'Triangulation de la position...',
+    'Position détectée !',
+  ];
 
   return (
     <div className="text-center">
-      <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-800/50 border border-slate-700/50 text-slate-300 text-sm mb-6`}>
-        <MapPin className={`w-4 h-4 text-${networkColor}-400`} />
-        <span>Étape 4/4</span>
+      <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full ${
+        detectedLocation
+          ? 'bg-emerald-500/20 border-emerald-500/30'
+          : 'bg-slate-800/50 border-slate-700/50'
+      } border text-slate-300 text-sm mb-6 transition-all duration-500`}>
+        {detectedLocation ? (
+          <>
+            <CheckCircle className="w-4 h-4 text-emerald-400" />
+            <span className="text-emerald-300">Position détectée</span>
+          </>
+        ) : (
+          <>
+            <div className={`w-4 h-4 border-2 border-${networkColor}-400 border-t-transparent rounded-full animate-spin`} />
+            <span>Étape 4/4</span>
+          </>
+        )}
       </div>
 
       <h2 className="text-3xl md:text-4xl font-bold text-white mb-3">
-        Ta localisation
+        {detectedLocation ? 'Profil localisé' : 'Localisation de'}
+        {' '}
+        <span className={`text-transparent bg-clip-text bg-gradient-to-r ${
+          network === 'tiktok' ? 'from-rose-400 to-orange-500' : 'from-pink-400 to-orange-500'
+        }`}>
+          @{targetUsername}
+        </span>
       </h2>
-      <p className="text-slate-400 mb-6">
-        Indique ta ville pour personnaliser l'analyse
-      </p>
+
+      {!detectedLocation && (
+        <p className="text-slate-400 mb-6">
+          {scanMessages[currentMessage]}
+        </p>
+      )}
 
       <div className="space-y-4">
-        <div className="relative">
-          <div className={`relative group transition-all duration-300 ${isFocused ? 'scale-[1.02]' : ''}`}>
-            <div className={`absolute -inset-0.5 bg-gradient-to-r ${
-              network === 'tiktok'
-                ? 'from-rose-500 to-orange-500'
-                : 'from-pink-500 to-orange-500'
-            } rounded-2xl opacity-0 group-hover:opacity-50 transition-opacity blur ${isFocused ? 'opacity-75' : ''}`} />
-            <div className="relative bg-slate-800/80 backdrop-blur-sm rounded-2xl border border-slate-700/50 p-1">
-              <div className="flex items-center">
-                <Search className="ml-4 w-5 h-5 text-slate-400" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onFocus={() => setIsFocused(true)}
-                  onBlur={() => setTimeout(() => setIsFocused(false), 200)}
-                  placeholder="Rechercher une ville..."
-                  className="w-full px-3 py-4 bg-transparent text-white text-lg placeholder-slate-500 focus:outline-none"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => {
-                      setSearchQuery('');
-                      setSearchResults([]);
-                    }}
-                    className="mr-4 p-1 text-slate-400 hover:text-white transition-colors"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {(searchResults.length > 0 || isSearching) && isFocused && (
-            <div className="absolute w-full mt-2 bg-slate-800/95 backdrop-blur-sm rounded-xl border border-slate-700/50 shadow-xl overflow-hidden z-50">
-              {isSearching ? (
-                <div className="p-4 text-center text-slate-400">
-                  <div className="w-5 h-5 border-2 border-rose-400 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                  Recherche...
-                </div>
-              ) : (
-                searchResults.map((city) => (
-                  <button
-                    key={city.id}
-                    onClick={() => handleCityClick(city)}
-                    className="w-full px-4 py-3 text-left hover:bg-slate-700/50 transition-colors flex items-center gap-3"
-                  >
-                    <MapPin className={`w-5 h-5 text-${networkColor}-400 flex-shrink-0`} />
-                    <div>
-                      <div className="text-white font-medium">{city.name}</div>
-                      <div className="text-sm text-slate-400">{city.country}</div>
-                    </div>
-                  </button>
-                ))
-              )}
+        <div className={`relative bg-slate-800/50 backdrop-blur-sm rounded-2xl border ${
+          detectedLocation ? 'border-emerald-500/30' : 'border-slate-700/50'
+        } overflow-hidden transition-all duration-500`}>
+          {!detectedLocation && (
+            <div className="absolute inset-0 overflow-hidden z-10 pointer-events-none">
+              <div className={`absolute inset-0 bg-gradient-to-r ${
+                network === 'tiktok' ? 'from-rose-500/10 via-orange-500/10' : 'from-pink-500/10 via-orange-500/10'
+              } to-transparent animate-pulse`} />
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-rose-500/50 to-transparent animate-scan-line" />
             </div>
           )}
-        </div>
 
-        <div className="relative bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700/50 overflow-hidden">
-          <div className="absolute top-3 left-3 z-10 bg-slate-900/80 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-slate-700/50">
+          <div className="absolute top-3 left-3 z-20 bg-slate-900/90 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-slate-700/50">
             <div className="flex items-center gap-2 text-sm">
-              <MapPin className={`w-4 h-4 text-${networkColor}-400`} />
+              <MapPin className={`w-4 h-4 ${detectedLocation ? 'text-emerald-400' : `text-${networkColor}-400`}`} />
               <span className="text-white font-medium">
-                {selectedCity ? selectedCity.name : 'Position détectée'}
+                {detectedLocation ? detectedLocation.city : 'Détection en cours...'}
               </span>
             </div>
           </div>
@@ -631,36 +622,59 @@ function CitySelectionStep({ network, selectedCity, onCitySelect, onConfirm }: C
             className="w-full h-[250px]"
           />
 
-          {selectedCity && (
-            <div className="p-4 border-t border-slate-700/50">
-              <div className="flex items-center justify-center gap-3">
-                <MapPin className="w-5 h-5 text-emerald-400" />
+          {detectedLocation && (
+            <div className="p-4 border-t border-slate-700/50 bg-slate-800/50">
+              <div className="flex items-center justify-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                  <MapPin className="w-6 h-6 text-emerald-400" />
+                </div>
                 <div className="text-left">
-                  <div className="text-white font-semibold">{selectedCity.name}</div>
-                  <div className="text-sm text-slate-400">{selectedCity.country}</div>
+                  <div className="text-xl font-bold text-white">{detectedLocation.city}</div>
+                  <div className="text-sm text-slate-400">{detectedLocation.region}, {detectedLocation.country}</div>
                 </div>
               </div>
             </div>
           )}
         </div>
 
-        <button
-          onClick={onConfirm}
-          disabled={!selectedCity}
-          className={`w-full py-5 font-bold rounded-xl transition-all text-lg flex items-center justify-center gap-3 ${
-            selectedCity
-              ? `bg-gradient-to-r ${network === 'tiktok' ? 'from-rose-500 to-orange-600 shadow-rose-500/30 hover:shadow-rose-500/50' : 'from-pink-500 to-orange-500 shadow-pink-500/30 hover:shadow-pink-500/50'} text-white shadow-xl hover:scale-[1.02] active:scale-[0.98]`
-              : 'bg-slate-700/50 text-slate-500 cursor-not-allowed'
-          }`}
-        >
-          <Scan className="w-5 h-5" />
-          <span>Lancer l'analyse</span>
-        </button>
+        {!detectedLocation && (
+          <div className="space-y-2">
+            <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+              <div
+                className={`h-full bg-gradient-to-r ${
+                  network === 'tiktok' ? 'from-rose-500 to-orange-500' : 'from-pink-500 to-orange-500'
+                } transition-all duration-150 ease-out`}
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <div className="flex justify-between text-xs text-slate-500">
+              <span className={progress >= 5 ? 'text-slate-300' : ''}>Connexion</span>
+              <span className={progress >= 30 ? 'text-slate-300' : ''}>Analyse IP</span>
+              <span className={progress >= 60 ? 'text-slate-300' : ''}>Triangulation</span>
+              <span className={progress >= 95 ? 'text-emerald-400' : ''}>Détecté</span>
+            </div>
+          </div>
+        )}
 
-        <div className="flex items-center justify-center gap-2 text-slate-400 text-sm">
-          <Shield className="w-4 h-4" />
-          <span>Ta localisation reste privée</span>
-        </div>
+        {detectedLocation && (
+          <div className="space-y-4 animate-fade-in">
+            <button
+              onClick={onConfirm}
+              className={`w-full py-5 font-bold rounded-xl transition-all text-lg flex items-center justify-center gap-3 bg-gradient-to-r ${
+                network === 'tiktok'
+                  ? 'from-rose-500 to-orange-600 shadow-rose-500/30 hover:shadow-rose-500/50'
+                  : 'from-pink-500 to-orange-500 shadow-pink-500/30 hover:shadow-pink-500/50'
+              } text-white shadow-xl hover:scale-[1.02] active:scale-[0.98]`}
+            >
+              <span>Continuer l'analyse</span>
+              <ArrowRight className="w-5 h-5" />
+            </button>
+
+            <p className="text-slate-500 text-sm">
+              Localisation basée sur les métadonnées du réseau
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -694,7 +708,7 @@ function VerificationStep({
     setIsVerifying(true);
     
     const startTime = Date.now();
-    const totalDuration = 8000; // 8 seconds total
+    const totalDuration = 8000;
     let currentProgress = 0;
     let isComplete = false;
     
