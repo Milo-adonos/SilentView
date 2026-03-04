@@ -1,7 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { ArrowRight, Shield, ArrowLeft, Sparkles, Scan, MapPin, CheckCircle } from 'lucide-react';
-import { detectLocationFromIP, getDetectionDelay, DetectedLocation } from '../../lib/locationDetection';
-import LocationMap from './LocationMap';
+import { useState, useEffect } from 'react';
+import { ArrowRight, Shield, ArrowLeft, Sparkles, Scan, CheckCircle } from 'lucide-react';
 
 interface Props {
   onSubmit: (ownUsername: string, targetUsername: string, network: 'tiktok' | 'instagram') => void;
@@ -69,8 +67,8 @@ export default function UsernameInput({ onSubmit, onBack }: Props) {
   const [ownUsername, setOwnUsername] = useState('');
   const [targetUsername, setTargetUsername] = useState('');
   const [isTransitioning, setIsTransitioning] = useState(false);
-  const [detectedLocation, setDetectedLocation] = useState<DetectedLocation | null>(null);
-  const [isDetecting, setIsDetecting] = useState(false);
+  const [verificationComplete, setVerificationComplete] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
 
   const handleNetworkSelect = (network: SocialNetwork) => {
     setSocialNetwork(network);
@@ -114,8 +112,8 @@ export default function UsernameInput({ onSubmit, onBack }: Props) {
     } else if (step === 'target') {
       transitionTo('own');
     } else if (step === 'detecting') {
-      setDetectedLocation(null);
-      setIsDetecting(false);
+      setVerificationComplete(false);
+      setIsVerifying(false);
       transitionTo('target');
     }
   };
@@ -168,14 +166,13 @@ export default function UsernameInput({ onSubmit, onBack }: Props) {
           )}
 
           {step === 'detecting' && (
-            <LocationDetectionStep
+            <VerificationStep
               ownUsername={ownUsername.trim().replace('@', '')}
-              targetUsername={targetUsername.trim().replace('@', '')}
               network={socialNetwork}
-              detectedLocation={detectedLocation}
-              setDetectedLocation={setDetectedLocation}
-              isDetecting={isDetecting}
-              setIsDetecting={setIsDetecting}
+              verificationComplete={verificationComplete}
+              setVerificationComplete={setVerificationComplete}
+              isVerifying={isVerifying}
+              setIsVerifying={setIsVerifying}
               onContinue={handleDetectionComplete}
             />
           )}
@@ -383,83 +380,63 @@ function TargetUsernameStep({ network, value, onChange, onSubmit }: UsernameStep
   );
 }
 
-interface LocationDetectionStepProps {
+interface VerificationStepProps {
   ownUsername: string;
-  targetUsername: string;
   network: SocialNetwork;
-  detectedLocation: DetectedLocation | null;
-  setDetectedLocation: (location: DetectedLocation | null) => void;
-  isDetecting: boolean;
-  setIsDetecting: (value: boolean) => void;
+  verificationComplete: boolean;
+  setVerificationComplete: (complete: boolean) => void;
+  isVerifying: boolean;
+  setIsVerifying: (value: boolean) => void;
   onContinue: () => void;
 }
 
-function LocationDetectionStep({
+function VerificationStep({
   ownUsername,
   network,
-  detectedLocation,
-  setDetectedLocation,
-  isDetecting,
-  setIsDetecting,
+  verificationComplete,
+  setVerificationComplete,
+  setIsVerifying,
   onContinue,
-}: LocationDetectionStepProps) {
-  const [scanPhase, setScanPhase] = useState(0);
+}: VerificationStepProps) {
   const [progress, setProgress] = useState(0);
   const [currentMessage, setCurrentMessage] = useState(0);
   const networkColor = network === 'tiktok' ? 'rose' : 'pink';
-  const locationRef = useRef<DetectedLocation | null>(null);
 
   useEffect(() => {
-    // Skip if already detected
-    if (detectedLocation) return;
+    if (verificationComplete) return;
     
-    setIsDetecting(true);
+    setIsVerifying(true);
     
     const startTime = Date.now();
-    const totalDuration = 15000; // 15 seconds total
+    const totalDuration = 8000; // 8 seconds total
     let currentProgress = 0;
     let isComplete = false;
     
-    // Phase timings (cumulative) with non-uniform progression
     const phaseTimings = [
-      { end: 3000, targetProgress: 25, phase: 1, message: 0 },   // 0-3s: Connexion (fast)
-      { end: 5500, targetProgress: 40, phase: 1, message: 1 },   // 3-5.5s: Slow down
-      { end: 8000, targetProgress: 60, phase: 2, message: 1 },   // 5.5-8s: Analyse
-      { end: 10500, targetProgress: 75, phase: 2, message: 2 },  // 8-10.5s: Localisation start
-      { end: 12500, targetProgress: 90, phase: 3, message: 2 },  // 10.5-12.5s: Localisation
-      { end: 15000, targetProgress: 100, phase: 3, message: 3 }, // 12.5-15s: Complete
+      { end: 2000, targetProgress: 30, message: 0 },
+      { end: 4000, targetProgress: 55, message: 1 },
+      { end: 6000, targetProgress: 80, message: 2 },
+      { end: 8000, targetProgress: 100, message: 3 },
     ];
 
-    // Start location detection in parallel
-    detectLocationFromIP().then(location => {
-      locationRef.current = location;
-    });
-
-    // Use interval for more reliable updates
     const intervalId = setInterval(() => {
       if (isComplete) return;
       
       const elapsed = Date.now() - startTime;
       
-      // Check if animation is complete
       if (elapsed >= totalDuration) {
         isComplete = true;
         setProgress(100);
-        setScanPhase(4);
         setCurrentMessage(3);
         clearInterval(intervalId);
         
-        // Complete the detection after a small delay
         setTimeout(() => {
-          if (locationRef.current) {
-            setDetectedLocation(locationRef.current);
-          }
-          setIsDetecting(false);
+          setVerificationComplete(true);
+          setIsVerifying(false);
         }, 500);
         return;
       }
 
-      // Find current phase
       let currentPhaseIndex = 0;
       for (let i = 0; i < phaseTimings.length; i++) {
         if (elapsed < phaseTimings[i].end) {
@@ -471,44 +448,22 @@ function LocationDetectionStep({
       const currentPhase = phaseTimings[currentPhaseIndex];
       const prevPhase = currentPhaseIndex > 0 ? phaseTimings[currentPhaseIndex - 1] : { end: 0, targetProgress: 0 };
       
-      // Calculate progress within this phase
       const phaseElapsed = elapsed - prevPhase.end;
       const phaseDuration = currentPhase.end - prevPhase.end;
       const phaseProgressRange = currentPhase.targetProgress - prevPhase.targetProgress;
       
       const phaseRatio = Math.min(phaseElapsed / phaseDuration, 1);
+      const easedRatio = 1 - Math.pow(1 - phaseRatio, 2);
       
-      // Different easing for different phases
-      let easedRatio;
-      if (currentPhaseIndex === 0) {
-        // Fast start (ease-out)
-        easedRatio = 1 - Math.pow(1 - phaseRatio, 2);
-      } else if (currentPhaseIndex === 2) {
-        // Slower middle - pause effect
-        easedRatio = phaseRatio * 0.7 + Math.sin(phaseRatio * Math.PI) * 0.15;
-      } else if (currentPhaseIndex === 4 || currentPhaseIndex === 5) {
-        // Accelerate towards end
-        easedRatio = Math.pow(phaseRatio, 0.7);
-      } else {
-        // Linear with slight variation
-        easedRatio = phaseRatio + Math.sin(elapsed / 300) * 0.02;
-      }
-      
-      const newProgress = prevPhase.targetProgress + (phaseProgressRange * Math.min(easedRatio, 1));
-      
-      // Add micro-fluctuations and ensure progress never goes backwards
+      const newProgress = prevPhase.targetProgress + (phaseProgressRange * easedRatio);
       const fluctuation = Math.sin(elapsed / 200) * 0.3;
       const finalProgress = Math.max(newProgress + fluctuation, currentProgress);
       
       currentProgress = Math.min(finalProgress, 100);
       setProgress(currentProgress);
-      
-      // Update phase and message
-      setScanPhase(currentPhase.phase);
       setCurrentMessage(currentPhase.message);
-    }, 50); // Update every 50ms for smooth animation
+    }, 50);
 
-    // Cleanup
     return () => {
       clearInterval(intervalId);
     };
@@ -517,19 +472,19 @@ function LocationDetectionStep({
 
   const scanMessages = [
     'Connexion aux serveurs...',
-    'Analyse des métadonnées...',
-    'Localisation en cours...',
-    'Localisation détectée !',
+    'Vérification du profil...',
+    'Analyse des données...',
+    'Profil vérifié !',
   ];
 
   return (
     <div className="text-center">
       <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full ${
-        detectedLocation
+        verificationComplete
           ? 'bg-emerald-500/20 border-emerald-500/30'
           : 'bg-slate-800/50 border-slate-700/50'
       } border text-slate-300 text-sm mb-6 transition-all duration-500`}>
-        {detectedLocation ? (
+        {verificationComplete ? (
           <>
             <CheckCircle className="w-4 h-4 text-emerald-400" />
             <span className="text-emerald-300">Profil vérifié</span>
@@ -537,13 +492,13 @@ function LocationDetectionStep({
         ) : (
           <>
             <div className={`w-4 h-4 border-2 border-${networkColor}-400 border-t-transparent rounded-full animate-spin`} />
-            <span>Verification en cours</span>
+            <span>Vérification en cours</span>
           </>
         )}
       </div>
 
       <h2 className="text-3xl md:text-4xl font-bold text-white mb-3">
-        {detectedLocation ? 'Profil détecté' : 'Analyse de'}
+        {verificationComplete ? 'Profil vérifié' : 'Analyse de'}
         {' '}
         <span className={`text-transparent bg-clip-text bg-gradient-to-r ${
           network === 'tiktok' ? 'from-rose-400 to-orange-500' : 'from-pink-400 to-orange-500'
@@ -552,16 +507,16 @@ function LocationDetectionStep({
         </span>
       </h2>
 
-      {!detectedLocation && (
+      {!verificationComplete && (
         <p className="text-slate-400 mb-8">
           {scanMessages[currentMessage]}
         </p>
       )}
 
       <div className={`relative bg-slate-800/50 backdrop-blur-sm rounded-2xl border ${
-        detectedLocation ? 'border-emerald-500/30' : 'border-slate-700/50'
+        verificationComplete ? 'border-emerald-500/30' : 'border-slate-700/50'
       } p-8 mb-8 overflow-hidden transition-all duration-500`}>
-        {!detectedLocation && (
+        {!verificationComplete && (
           <div className="absolute inset-0 overflow-hidden">
             <div className={`absolute inset-0 bg-gradient-to-r ${
               network === 'tiktok' ? 'from-rose-500/5 via-orange-500/5' : 'from-pink-500/5 via-orange-500/5'
@@ -571,12 +526,12 @@ function LocationDetectionStep({
         )}
 
         <div className="relative">
-          {!detectedLocation ? (
+          {!verificationComplete ? (
             <div className="space-y-4">
               <div className={`w-20 h-20 mx-auto rounded-full ${
                 network === 'tiktok' ? 'bg-rose-500/20' : 'bg-pink-500/20'
               } flex items-center justify-center`}>
-                <MapPin className={`w-10 h-10 ${
+                <Scan className={`w-10 h-10 ${
                   network === 'tiktok' ? 'text-rose-400' : 'text-pink-400'
                 } animate-pulse`} />
               </div>
@@ -592,29 +547,16 @@ function LocationDetectionStep({
                 </div>
                 <div className="flex justify-between text-xs text-slate-500">
                   <span className={progress >= 5 ? 'text-slate-300' : ''}>Connexion</span>
-                  <span className={progress >= 35 ? 'text-slate-300' : ''}>Analyse</span>
-                  <span className={progress >= 65 ? 'text-slate-300' : ''}>Localisation</span>
-                  <span className={progress >= 95 ? 'text-emerald-400' : ''}>Complete</span>
+                  <span className={progress >= 35 ? 'text-slate-300' : ''}>Vérification</span>
+                  <span className={progress >= 65 ? 'text-slate-300' : ''}>Analyse</span>
+                  <span className={progress >= 95 ? 'text-emerald-400' : ''}>Complète</span>
                 </div>
               </div>
             </div>
           ) : (
             <div className="space-y-4 animate-fade-in">
-              <LocationMap
-                latitude={detectedLocation.latitude}
-                longitude={detectedLocation.longitude}
-                city={detectedLocation.city}
-              />
-
-              <div className="flex items-center justify-center gap-3 pt-2">
-                <span className="text-4xl">{detectedLocation.flag}</span>
-                <div className="text-left">
-                  <div className="flex items-center gap-2">
-                    <MapPin className="w-4 h-4 text-emerald-400" />
-                    <span className="text-xl font-bold text-white">{detectedLocation.city}</span>
-                  </div>
-                  <p className="text-sm text-slate-400">{detectedLocation.region}, {detectedLocation.country}</p>
-                </div>
+              <div className="w-20 h-20 mx-auto rounded-full bg-emerald-500/20 flex items-center justify-center">
+                <CheckCircle className="w-10 h-10 text-emerald-400" />
               </div>
 
               <div className="pt-3 border-t border-slate-700/50">
@@ -638,7 +580,7 @@ function LocationDetectionStep({
         </div>
       </div>
 
-      {detectedLocation && (
+      {verificationComplete && (
         <div className="space-y-4 animate-fade-in">
           <button
             onClick={onContinue}
@@ -653,7 +595,7 @@ function LocationDetectionStep({
           </button>
 
           <p className="text-slate-500 text-sm">
-            Localisation basée sur les métadonnées publiques du compte
+            Profil vérifié et prêt pour l'analyse
           </p>
         </div>
       )}
