@@ -18,9 +18,13 @@ import {
   Heart,
   Activity,
   Bell,
-  Crown
+  Crown,
+  ExternalLink,
+  Image,
+  UserCheck
 } from 'lucide-react';
 import { GeneratedSignals, Signal } from '../../lib/signalGenerator';
+import { fetchInstagramProfile, formatFollowerCount, InstagramProfile } from '../../lib/instagramService';
 
 interface Props {
   targetUsername: string;
@@ -59,6 +63,155 @@ function AnimatedBackground() {
           }}
         />
       ))}
+    </div>
+  );
+}
+
+// Instagram Profile Card
+function InstagramProfileCard({ username, profile, isLoading }: { 
+  username: string; 
+  profile: InstagramProfile | null; 
+  isLoading: boolean;
+}) {
+  const instagramUrl = `https://instagram.com/${username}`;
+
+  if (isLoading) {
+    return (
+      <div className="relative mb-6">
+        <div className="bg-slate-800/60 backdrop-blur-xl rounded-2xl border border-slate-700/50 p-5">
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 rounded-full bg-slate-700 animate-pulse" />
+            <div className="flex-1 space-y-2">
+              <div className="h-4 w-24 bg-slate-700 rounded animate-pulse" />
+              <div className="h-3 w-32 bg-slate-700 rounded animate-pulse" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <div className="relative mb-6">
+        <div className="bg-slate-800/60 backdrop-blur-xl rounded-2xl border border-slate-700/50 p-5">
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-pink-500 to-orange-500 flex items-center justify-center text-white text-2xl font-bold">
+              {username.charAt(0).toUpperCase()}
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-white text-lg">@{username}</span>
+                <a
+                  href={instagramUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-pink-400 hover:text-pink-300 transition-colors"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                </a>
+              </div>
+              <p className="text-sm text-slate-400">Profil Instagram</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative mb-6">
+      <div className="absolute -inset-1 bg-gradient-to-r from-pink-500/20 via-purple-500/20 to-orange-500/20 rounded-2xl blur-xl" />
+      
+      <div className="relative bg-slate-800/80 backdrop-blur-xl rounded-2xl border border-pink-500/30 p-5 overflow-hidden">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-pink-500/10 to-transparent rounded-full -translate-y-1/2 translate-x-1/2" />
+        
+        <div className="relative">
+          {/* Profile header */}
+          <div className="flex items-center gap-4 mb-4">
+            {/* Profile picture */}
+            <div className="relative">
+              <div className="absolute -inset-1 bg-gradient-to-br from-pink-500 to-orange-500 rounded-full blur-sm opacity-50" />
+              {profile.profilePicUrl ? (
+                <img
+                  src={profile.profilePicUrl}
+                  alt={profile.username}
+                  className="relative w-16 h-16 rounded-full object-cover border-2 border-pink-500/50"
+                />
+              ) : (
+                <div className="relative w-16 h-16 rounded-full bg-gradient-to-br from-pink-500 to-orange-500 flex items-center justify-center text-white text-2xl font-bold border-2 border-pink-500/50">
+                  {username.charAt(0).toUpperCase()}
+                </div>
+              )}
+              {profile.isPrivate && (
+                <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-slate-800 rounded-full flex items-center justify-center border border-slate-700">
+                  <Lock className="w-3 h-3 text-slate-400" />
+                </div>
+              )}
+            </div>
+
+            {/* Username and link */}
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="font-bold text-white text-lg">@{profile.username}</span>
+                {!profile.isPrivate && (
+                  <UserCheck className="w-4 h-4 text-emerald-400" />
+                )}
+              </div>
+              {profile.fullName && (
+                <p className="text-sm text-slate-300">{profile.fullName}</p>
+              )}
+              <a
+                href={instagramUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-pink-400 hover:text-pink-300 transition-colors mt-1"
+              >
+                <span>Voir le profil</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          </div>
+
+          {/* Stats */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-slate-900/50 rounded-xl p-3 text-center border border-slate-700/50">
+              <div className="text-xl font-bold text-white">
+                {formatFollowerCount(profile.postCount)}
+              </div>
+              <div className="text-xs text-slate-400 flex items-center justify-center gap-1">
+                <Image className="w-3 h-3" />
+                <span>Posts</span>
+              </div>
+            </div>
+            <div className="bg-slate-900/50 rounded-xl p-3 text-center border border-slate-700/50">
+              <div className="text-xl font-bold text-pink-400">
+                {formatFollowerCount(profile.followerCount)}
+              </div>
+              <div className="text-xs text-slate-400 flex items-center justify-center gap-1">
+                <Users className="w-3 h-3" />
+                <span>Followers</span>
+              </div>
+            </div>
+            <div className="bg-slate-900/50 rounded-xl p-3 text-center border border-slate-700/50">
+              <div className="text-xl font-bold text-white">
+                {formatFollowerCount(profile.followingCount)}
+              </div>
+              <div className="text-xs text-slate-400 flex items-center justify-center gap-1">
+                <UserCheck className="w-3 h-3" />
+                <span>Suivis</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Bio preview if available */}
+          {profile.bio && (
+            <div className="mt-3 pt-3 border-t border-slate-700/50">
+              <p className="text-sm text-slate-400 line-clamp-2">{profile.bio}</p>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -755,6 +908,25 @@ function InterpretationTeaser({ generatedSignals }: { generatedSignals: Generate
 // Main component
 export default function ResultsPreview({ targetUsername, ownUsername, generatedSignals, onUnlock }: Props) {
   const { signals, personalizedTitle } = generatedSignals;
+  const [instagramProfile, setInstagramProfile] = useState<InstagramProfile | null>(null);
+  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
+
+  // Fetch Instagram profile on mount
+  useEffect(() => {
+    const loadProfile = async () => {
+      setIsLoadingProfile(true);
+      try {
+        const profile = await fetchInstagramProfile(targetUsername);
+        setInstagramProfile(profile);
+      } catch (error) {
+        console.error('Error loading Instagram profile:', error);
+      } finally {
+        setIsLoadingProfile(false);
+      }
+    };
+
+    loadProfile();
+  }, [targetUsername]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 relative">
@@ -787,6 +959,13 @@ export default function ResultsPreview({ targetUsername, ownUsername, generatedS
             {personalizedTitle.title}
           </h1>
         </div>
+
+        {/* Instagram Profile Card */}
+        <InstagramProfileCard 
+          username={targetUsername} 
+          profile={instagramProfile} 
+          isLoading={isLoadingProfile} 
+        />
 
         {/* Interest progress bar */}
         <InterestProgressCard targetUsername={targetUsername} generatedSignals={generatedSignals} />
