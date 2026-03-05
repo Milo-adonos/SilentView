@@ -1,14 +1,12 @@
-import { useState, useEffect, useRef } from 'react';
-import { ArrowRight, Shield, ArrowLeft, Sparkles, Scan, CheckCircle, MapPin } from 'lucide-react';
-import mapboxgl from 'mapbox-gl';
-import { detectLocationFromIP, DetectedLocation } from '../../lib/locationDetection';
+import { useState, useEffect } from 'react';
+import { ArrowRight, Shield, ArrowLeft, Sparkles, Scan, CheckCircle } from 'lucide-react';
 
 interface Props {
   onSubmit: (ownUsername: string, targetUsername: string, network: 'tiktok' | 'instagram') => void;
   onBack: () => void;
 }
 
-type Step = 'network' | 'own' | 'target' | 'location' | 'detecting';
+type Step = 'network' | 'own' | 'target' | 'detecting';
 type SocialNetwork = 'tiktok' | 'instagram' | null;
 
 function FloatingOrbs() {
@@ -33,15 +31,13 @@ function RadarPulse() {
   );
 }
 
-function StepIndicator({ currentStep, showDetecting }: { currentStep: Step; showDetecting: boolean }) {
-  const steps = showDetecting
-    ? ['network', 'own', 'target', 'location', 'detecting'] as const
-    : ['network', 'own', 'target', 'location'] as const;
+function StepIndicator({ currentStep }: { currentStep: Step }) {
+  const steps = ['network', 'own', 'target', 'detecting'] as const;
   const currentIndex = steps.indexOf(currentStep as typeof steps[number]);
 
   return (
     <div className="flex items-center justify-center gap-2 mb-8">
-      {steps.map((step, index) => (
+      {steps.slice(0, 3).map((step, index) => (
         <div key={step} className="flex items-center">
           <div
             className={`w-2.5 h-2.5 rounded-full transition-all duration-500 ${
@@ -50,7 +46,7 @@ function StepIndicator({ currentStep, showDetecting }: { currentStep: Step; show
                 : 'bg-slate-600 scale-75'
             }`}
           />
-          {index < steps.length - 1 && (
+          {index < 2 && (
             <div
               className={`w-6 h-0.5 mx-1 transition-all duration-500 ${
                 index < currentIndex ? 'bg-gradient-to-r from-rose-400 to-orange-500' : 'bg-slate-700'
@@ -68,7 +64,6 @@ export default function UsernameInput({ onSubmit, onBack }: Props) {
   const [socialNetwork, setSocialNetwork] = useState<SocialNetwork>(null);
   const [ownUsername, setOwnUsername] = useState('');
   const [targetUsername, setTargetUsername] = useState('');
-  const [detectedLocation, setDetectedLocation] = useState<DetectedLocation | null>(null);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [verificationComplete, setVerificationComplete] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
@@ -96,16 +91,6 @@ export default function UsernameInput({ onSubmit, onBack }: Props) {
   const handleTargetSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (targetUsername.trim() && socialNetwork) {
-      transitionTo('location');
-    }
-  };
-
-  const handleLocationDetected = (location: DetectedLocation) => {
-    setDetectedLocation(location);
-  };
-
-  const handleLocationConfirm = () => {
-    if (detectedLocation) {
       transitionTo('detecting');
     }
   };
@@ -124,13 +109,10 @@ export default function UsernameInput({ onSubmit, onBack }: Props) {
       setSocialNetwork(null);
     } else if (step === 'target') {
       transitionTo('own');
-    } else if (step === 'location') {
-      setDetectedLocation(null);
-      transitionTo('target');
     } else if (step === 'detecting') {
       setVerificationComplete(false);
       setIsVerifying(false);
-      transitionTo('location');
+      transitionTo('target');
     }
   };
 
@@ -139,7 +121,7 @@ export default function UsernameInput({ onSubmit, onBack }: Props) {
       <FloatingOrbs />
       <RadarPulse />
 
-      {step !== 'detecting' && step !== 'location' && (
+      {step !== 'detecting' && (
         <div className="absolute top-6 left-6 z-20">
           <button
             onClick={step === 'network' ? onBack : goBack}
@@ -152,7 +134,7 @@ export default function UsernameInput({ onSubmit, onBack }: Props) {
       )}
 
       <div className="w-full max-w-lg relative z-10">
-        <StepIndicator currentStep={step} showDetecting={step === 'detecting'} />
+        <StepIndicator currentStep={step} />
 
         <div
           className={`transition-all duration-300 ${
@@ -181,16 +163,6 @@ export default function UsernameInput({ onSubmit, onBack }: Props) {
             />
           )}
 
-          {step === 'location' && (
-            <LocationDetectionStep
-              network={socialNetwork}
-              targetUsername={targetUsername.trim().replace('@', '')}
-              detectedLocation={detectedLocation}
-              onLocationDetected={handleLocationDetected}
-              onConfirm={handleLocationConfirm}
-            />
-          )}
-
           {step === 'detecting' && (
             <VerificationStep
               ownUsername={ownUsername.trim().replace('@', '')}
@@ -215,7 +187,7 @@ function NetworkSelection({ onSelect }: { onSelect: (network: SocialNetwork) => 
     <div className="text-center">
       <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-800/50 border border-slate-700/50 text-slate-300 text-sm mb-6">
         <Scan className="w-4 h-4 text-rose-400" />
-        <span>Étape 1/4</span>
+        <span>Étape 1/3</span>
       </div>
 
       <h2 className="text-3xl md:text-4xl font-bold text-white mb-3">
@@ -291,7 +263,7 @@ function OwnUsernameStep({ network, value, onChange, onSubmit }: UsernameStepPro
     <div className="text-center">
       <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-800/50 border border-slate-700/50 text-slate-300 text-sm mb-6`}>
         <Sparkles className={`w-4 h-4 text-${networkColor}-400`} />
-        <span>Étape 2/4</span>
+        <span>Étape 2/3</span>
       </div>
 
       <h2 className="text-3xl md:text-4xl font-bold text-white mb-3">
@@ -350,7 +322,7 @@ function TargetUsernameStep({ network, value, onChange, onSubmit }: UsernameStep
     <div className="text-center">
       <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-800/50 border border-slate-700/50 text-slate-300 text-sm mb-6`}>
         <Scan className={`w-4 h-4 text-${networkColor}-400`} />
-        <span>Étape 3/4</span>
+        <span>Étape 3/3</span>
       </div>
 
       <h2 className="text-3xl md:text-4xl font-bold text-white mb-3">
@@ -402,280 +374,6 @@ function TargetUsernameStep({ network, value, onChange, onSubmit }: UsernameStep
           <span>Analyse 100% anonyme et sécurisée</span>
         </div>
       </form>
-    </div>
-  );
-}
-
-interface LocationDetectionStepProps {
-  network: SocialNetwork;
-  targetUsername: string;
-  detectedLocation: DetectedLocation | null;
-  onLocationDetected: (location: DetectedLocation) => void;
-  onConfirm: () => void;
-}
-
-function LocationDetectionStep({ 
-  network, 
-  targetUsername,
-  detectedLocation, 
-  onLocationDetected, 
-  onConfirm 
-}: LocationDetectionStepProps) {
-  const [progress, setProgress] = useState(0);
-  const [currentMessage, setCurrentMessage] = useState(0);
-  const [isDetecting, setIsDetecting] = useState(true);
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<mapboxgl.Map | null>(null);
-  const markerRef = useRef<mapboxgl.Marker | null>(null);
-  const locationRef = useRef<DetectedLocation | null>(null);
-  const networkColor = network === 'tiktok' ? 'rose' : 'pink';
-
-  const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
-
-  useEffect(() => {
-    if (!mapContainerRef.current || !mapboxToken || mapRef.current) return;
-
-    mapboxgl.accessToken = mapboxToken;
-    
-    const map = new mapboxgl.Map({
-      container: mapContainerRef.current,
-      style: 'mapbox://styles/mapbox/dark-v11',
-      center: [2.3522, 46.6034],
-      zoom: 4,
-      attributionControl: false,
-    });
-
-    mapRef.current = map;
-
-    return () => {
-      map.remove();
-      mapRef.current = null;
-    };
-  }, [mapboxToken]);
-
-  useEffect(() => {
-    if (detectedLocation) return;
-
-    const startTime = Date.now();
-    const totalDuration = 10000;
-    let currentProgress = 0;
-    let isComplete = false;
-
-    const phaseTimings = [
-      { end: 2500, targetProgress: 25, message: 0 },
-      { end: 5000, targetProgress: 50, message: 1 },
-      { end: 7500, targetProgress: 75, message: 2 },
-      { end: 10000, targetProgress: 100, message: 3 },
-    ];
-
-    detectLocationFromIP().then(location => {
-      locationRef.current = location;
-    });
-
-    const intervalId = setInterval(() => {
-      if (isComplete) return;
-
-      const elapsed = Date.now() - startTime;
-
-      if (elapsed >= totalDuration) {
-        isComplete = true;
-        setProgress(100);
-        setCurrentMessage(3);
-        clearInterval(intervalId);
-
-        setTimeout(() => {
-          if (locationRef.current) {
-            onLocationDetected(locationRef.current);
-            
-            if (mapRef.current) {
-              mapRef.current.flyTo({
-                center: [locationRef.current.longitude, locationRef.current.latitude],
-                zoom: 11,
-                duration: 2000,
-              });
-
-              setTimeout(() => {
-                if (markerRef.current) {
-                  markerRef.current.remove();
-                }
-
-                const el = document.createElement('div');
-                el.innerHTML = `
-                  <div class="w-10 h-10 bg-gradient-to-br from-rose-500 to-orange-500 rounded-full flex items-center justify-center shadow-lg shadow-rose-500/50 animate-pulse border-2 border-white">
-                    <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
-                    </svg>
-                  </div>
-                `;
-
-                markerRef.current = new mapboxgl.Marker(el)
-                  .setLngLat([locationRef.current!.longitude, locationRef.current!.latitude])
-                  .addTo(mapRef.current!);
-              }, 1500);
-            }
-          }
-          setIsDetecting(false);
-        }, 500);
-        return;
-      }
-
-      let currentPhaseIndex = 0;
-      for (let i = 0; i < phaseTimings.length; i++) {
-        if (elapsed < phaseTimings[i].end) {
-          currentPhaseIndex = i;
-          break;
-        }
-      }
-
-      const currentPhase = phaseTimings[currentPhaseIndex];
-      const prevPhase = currentPhaseIndex > 0 ? phaseTimings[currentPhaseIndex - 1] : { end: 0, targetProgress: 0 };
-
-      const phaseElapsed = elapsed - prevPhase.end;
-      const phaseDuration = currentPhase.end - prevPhase.end;
-      const phaseProgressRange = currentPhase.targetProgress - prevPhase.targetProgress;
-
-      const phaseRatio = Math.min(phaseElapsed / phaseDuration, 1);
-      const easedRatio = 1 - Math.pow(1 - phaseRatio, 2);
-
-      const newProgress = prevPhase.targetProgress + (phaseProgressRange * easedRatio);
-      const fluctuation = Math.sin(elapsed / 200) * 0.5;
-      const finalProgress = Math.max(newProgress + fluctuation, currentProgress);
-
-      currentProgress = Math.min(finalProgress, 100);
-      setProgress(currentProgress);
-      setCurrentMessage(currentPhase.message);
-    }, 50);
-
-    return () => {
-      clearInterval(intervalId);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const scanMessages = [
-    'Connexion au réseau...',
-    'Analyse de l\'adresse IP...',
-    'Triangulation de la position...',
-    'Position détectée !',
-  ];
-
-  return (
-    <div className="text-center">
-      <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full ${
-        detectedLocation
-          ? 'bg-emerald-500/20 border-emerald-500/30'
-          : 'bg-slate-800/50 border-slate-700/50'
-      } border text-slate-300 text-sm mb-6 transition-all duration-500`}>
-        {detectedLocation ? (
-          <>
-            <CheckCircle className="w-4 h-4 text-emerald-400" />
-            <span className="text-emerald-300">Position détectée</span>
-          </>
-        ) : (
-          <>
-            <div className={`w-4 h-4 border-2 border-${networkColor}-400 border-t-transparent rounded-full animate-spin`} />
-            <span>Étape 4/4</span>
-          </>
-        )}
-      </div>
-
-      <h2 className="text-3xl md:text-4xl font-bold text-white mb-3">
-        {detectedLocation ? 'Profil localisé' : 'Localisation de'}
-        {' '}
-        <span className={`text-transparent bg-clip-text bg-gradient-to-r ${
-          network === 'tiktok' ? 'from-rose-400 to-orange-500' : 'from-pink-400 to-orange-500'
-        }`}>
-          @{targetUsername}
-        </span>
-      </h2>
-
-      {!detectedLocation && (
-        <p className="text-slate-400 mb-6">
-          {scanMessages[currentMessage]}
-        </p>
-      )}
-
-      <div className="space-y-4">
-        <div className={`relative bg-slate-800/50 backdrop-blur-sm rounded-2xl border ${
-          detectedLocation ? 'border-emerald-500/30' : 'border-slate-700/50'
-        } overflow-hidden transition-all duration-500`}>
-          {!detectedLocation && (
-            <div className="absolute inset-0 overflow-hidden z-10 pointer-events-none">
-              <div className={`absolute inset-0 bg-gradient-to-r ${
-                network === 'tiktok' ? 'from-rose-500/10 via-orange-500/10' : 'from-pink-500/10 via-orange-500/10'
-              } to-transparent animate-pulse`} />
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-rose-500/50 to-transparent animate-scan-line" />
-            </div>
-          )}
-
-          <div className="absolute top-3 left-3 z-20 bg-slate-900/90 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-slate-700/50">
-            <div className="flex items-center gap-2 text-sm">
-              <MapPin className={`w-4 h-4 ${detectedLocation ? 'text-emerald-400' : `text-${networkColor}-400`}`} />
-              <span className="text-white font-medium">
-                {detectedLocation ? detectedLocation.city : 'Détection en cours...'}
-              </span>
-            </div>
-          </div>
-          
-          <div 
-            ref={mapContainerRef}
-            className="w-full h-[250px]"
-          />
-
-          {detectedLocation && (
-            <div className="p-4 border-t border-slate-700/50 bg-slate-800/50">
-              <div className="flex items-center justify-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center">
-                  <MapPin className="w-6 h-6 text-emerald-400" />
-                </div>
-                <div className="text-left">
-                  <div className="text-xl font-bold text-white">{detectedLocation.city}</div>
-                  <div className="text-sm text-slate-400">{detectedLocation.region}, {detectedLocation.country}</div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {!detectedLocation && (
-          <div className="space-y-2">
-            <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
-              <div
-                className={`h-full bg-gradient-to-r ${
-                  network === 'tiktok' ? 'from-rose-500 to-orange-500' : 'from-pink-500 to-orange-500'
-                } transition-all duration-150 ease-out`}
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-            <div className="flex justify-between text-xs text-slate-500">
-              <span className={progress >= 5 ? 'text-slate-300' : ''}>Connexion</span>
-              <span className={progress >= 30 ? 'text-slate-300' : ''}>Analyse IP</span>
-              <span className={progress >= 60 ? 'text-slate-300' : ''}>Triangulation</span>
-              <span className={progress >= 95 ? 'text-emerald-400' : ''}>Détecté</span>
-            </div>
-          </div>
-        )}
-
-        {detectedLocation && (
-          <div className="space-y-4 animate-fade-in">
-            <button
-              onClick={onConfirm}
-              className={`w-full py-5 font-bold rounded-xl transition-all text-lg flex items-center justify-center gap-3 bg-gradient-to-r ${
-                network === 'tiktok'
-                  ? 'from-rose-500 to-orange-600 shadow-rose-500/30 hover:shadow-rose-500/50'
-                  : 'from-pink-500 to-orange-500 shadow-pink-500/30 hover:shadow-pink-500/50'
-              } text-white shadow-xl hover:scale-[1.02] active:scale-[0.98]`}
-            >
-              <span>Continuer l'analyse</span>
-              <ArrowRight className="w-5 h-5" />
-            </button>
-
-            <p className="text-slate-500 text-sm">
-              Localisation basée sur les métadonnées du réseau
-            </p>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
