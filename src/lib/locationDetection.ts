@@ -14,7 +14,90 @@ const fallbackLocation: DetectedLocation = {
   longitude: 2.3522,
 };
 
-// Service principal: ipgeolocation.io - Très précis avec clé API
+// Service PRINCIPAL: Géolocalisation du navigateur (GPS/WiFi) - TRÈS PRÉCIS
+async function tryBrowserGeolocation(): Promise<DetectedLocation | null> {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      console.log('Browser geolocation not supported');
+      resolve(null);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        console.log('Browser GPS coordinates:', latitude, longitude);
+        
+        // Reverse geocoding avec Mapbox pour obtenir la ville
+        try {
+          const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
+          if (!mapboxToken) {
+            console.log('No Mapbox token for reverse geocoding');
+            resolve(null);
+            return;
+          }
+
+          const response = await fetch(
+            `https://api.mapbox.com/geocoding/v5/mapbox.places/${longitude},${latitude}.json?access_token=${mapboxToken}&types=place,locality,region,country&language=fr`
+          );
+
+          if (!response.ok) {
+            console.log('Mapbox reverse geocoding failed');
+            resolve(null);
+            return;
+          }
+
+          const data = await response.json();
+          
+          let city = '';
+          let region = '';
+          let country = 'France';
+
+          for (const feature of data.features || []) {
+            if ((feature.place_type?.includes('place') || feature.place_type?.includes('locality')) && !city) {
+              city = feature.text;
+            }
+            if (feature.place_type?.includes('region') && !region) {
+              region = feature.text;
+            }
+            if (feature.place_type?.includes('country')) {
+              country = feature.text;
+            }
+          }
+
+          if (!city && data.features?.length > 0) {
+            city = data.features[0].text || 'Ville détectée';
+          }
+
+          const location: DetectedLocation = {
+            city: city || 'Position détectée',
+            region: region || '',
+            country: country,
+            latitude,
+            longitude,
+          };
+
+          console.log('Browser geolocation result:', location);
+          resolve(location);
+        } catch (error) {
+          console.log('Reverse geocoding error:', error);
+          resolve(null);
+        }
+      },
+      (error) => {
+        console.log('Browser geolocation denied or failed:', error.message);
+        resolve(null);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 8000,
+        maximumAge: 300000,
+      }
+    );
+  });
+}
+
+// Fallback: ipgeolocation.io - Service IP avec clé API
 async function tryIpGeolocationIo(): Promise<DetectedLocation | null> {
   try {
     const apiKey = import.meta.env.VITE_IPGEOLOCATION_API_KEY;
@@ -92,17 +175,26 @@ async function tryIpApiIs(): Promise<DetectedLocation | null> {
 }
 
 export async function detectLocationFromIP(): Promise<DetectedLocation> {
-  console.log('Starting IP geolocation detection...');
+  console.log('Starting geolocation detection...');
   
-  // Essayer ipgeolocation.io en premier (service principal avec API key)
-  console.log('Trying ipgeolocation.io (primary service)...');
-  const primaryResult = await tryIpGeolocationIo();
-  if (primaryResult && primaryResult.city && primaryResult.latitude && primaryResult.longitude) {
-    console.log('Location detected via ipgeolocation.io:', primaryResult);
-    return primaryResult;
+  // 1. ESSAYER D'ABORD LA GÉOLOCALISATION NAVIGATEUR (GPS/WiFi) - TRÈS PRÉCIS
+  console.log('Trying browser geolocation (GPS/WiFi)...');
+  const browserResult = await tryBrowserGeolocation();
+  if (browserResult && browserResult.city && browserResult.latitude && browserResult.longitude) {
+    console.log('Location detected via browser GPS:', browserResult);
+    return browserResult;
+  }
+  console.log('Browser geolocation failed or denied, falling back to IP...');
+
+  // 2. Fallback sur ipgeolocation.io (service IP avec API key)
+  console.log('Trying ipgeolocation.io...');
+  const ipGeoResult = await tryIpGeolocationIo();
+  if (ipGeoResult && ipGeoResult.city && ipGeoResult.latitude && ipGeoResult.longitude) {
+    console.log('Location detected via ipgeolocation.io:', ipGeoResult);
+    return ipGeoResult;
   }
 
-  // Fallbacks si le service principal échoue
+  // 3. Autres fallbacks IP
   const fallbackServices = [
     { name: 'ipwho.is', fn: tryIpWhois },
     { name: 'ipapi.is', fn: tryIpApiIs },
