@@ -14,30 +14,42 @@ const fallbackLocation: DetectedLocation = {
   longitude: 2.3522,
 };
 
-// Service 1: ipinfo.io - Très précis et fiable
-async function tryIpInfo(): Promise<DetectedLocation | null> {
+// Service principal: ipgeolocation.io - Très précis avec clé API
+async function tryIpGeolocationIo(): Promise<DetectedLocation | null> {
   try {
-    const response = await fetch('https://ipinfo.io/json?token=');
-    if (!response.ok) return null;
+    const apiKey = import.meta.env.VITE_IPGEOLOCATION_API_KEY;
+    if (!apiKey) {
+      console.log('No ipgeolocation.io API key found');
+      return null;
+    }
+
+    const response = await fetch(`https://api.ipgeolocation.io/ipgeo?apiKey=${apiKey}`);
+    if (!response.ok) {
+      console.log('ipgeolocation.io response not ok:', response.status);
+      return null;
+    }
 
     const data = await response.json();
-    if (!data.city || !data.loc) return null;
-
-    const [lat, lon] = data.loc.split(',').map(Number);
+    
+    if (!data.city || !data.latitude || !data.longitude) {
+      console.log('ipgeolocation.io incomplete data:', data);
+      return null;
+    }
 
     return {
       city: data.city,
-      region: data.region || '',
-      country: data.country || 'France',
-      latitude: lat,
-      longitude: lon,
+      region: data.state_prov || data.district || '',
+      country: data.country_name || 'France',
+      latitude: parseFloat(data.latitude),
+      longitude: parseFloat(data.longitude),
     };
-  } catch {
+  } catch (error) {
+    console.error('ipgeolocation.io error:', error);
     return null;
   }
 }
 
-// Service 2: ipwho.is - Gratuit et précis
+// Fallback 1: ipwho.is - Gratuit et précis
 async function tryIpWhois(): Promise<DetectedLocation | null> {
   try {
     const response = await fetch('https://ipwho.is/');
@@ -58,64 +70,7 @@ async function tryIpWhois(): Promise<DetectedLocation | null> {
   }
 }
 
-// Service 3: ip-api.com (version HTTPS via proxy cloudflare)
-async function tryIpApiFields(): Promise<DetectedLocation | null> {
-  try {
-    const response = await fetch('https://pro.ip-api.com/json/?fields=status,city,regionName,country,lat,lon&key=');
-    if (!response.ok) {
-      // Fallback to free version (HTTP only, may not work on HTTPS sites)
-      const freeResponse = await fetch('http://ip-api.com/json/?fields=status,city,regionName,country,lat,lon');
-      if (!freeResponse.ok) return null;
-      
-      const data = await freeResponse.json();
-      if (data.status !== 'success') return null;
-
-      return {
-        city: data.city,
-        region: data.regionName || '',
-        country: data.country || 'France',
-        latitude: data.lat,
-        longitude: data.lon,
-      };
-    }
-
-    const data = await response.json();
-    if (data.status !== 'success') return null;
-
-    return {
-      city: data.city,
-      region: data.regionName || '',
-      country: data.country || 'France',
-      latitude: data.lat,
-      longitude: data.lon,
-    };
-  } catch {
-    return null;
-  }
-}
-
-// Service 4: geoplugin.net - Bon fallback
-async function tryGeoPlugin(): Promise<DetectedLocation | null> {
-  try {
-    const response = await fetch('http://www.geoplugin.net/json.gp');
-    if (!response.ok) return null;
-
-    const data = await response.json();
-    if (!data.geoplugin_city || data.geoplugin_status === 404) return null;
-
-    return {
-      city: data.geoplugin_city,
-      region: data.geoplugin_regionName || '',
-      country: data.geoplugin_countryName || 'France',
-      latitude: parseFloat(data.geoplugin_latitude),
-      longitude: parseFloat(data.geoplugin_longitude),
-    };
-  } catch {
-    return null;
-  }
-}
-
-// Service 5: ipapi.is - Alternative récente et précise
+// Fallback 2: ipapi.is
 async function tryIpApiIs(): Promise<DetectedLocation | null> {
   try {
     const response = await fetch('https://api.ipapi.is/');
@@ -139,23 +94,27 @@ async function tryIpApiIs(): Promise<DetectedLocation | null> {
 export async function detectLocationFromIP(): Promise<DetectedLocation> {
   console.log('Starting IP geolocation detection...');
   
-  // Essayer les services dans l'ordre de fiabilité
-  const services = [
+  // Essayer ipgeolocation.io en premier (service principal avec API key)
+  console.log('Trying ipgeolocation.io (primary service)...');
+  const primaryResult = await tryIpGeolocationIo();
+  if (primaryResult && primaryResult.city && primaryResult.latitude && primaryResult.longitude) {
+    console.log('Location detected via ipgeolocation.io:', primaryResult);
+    return primaryResult;
+  }
+
+  // Fallbacks si le service principal échoue
+  const fallbackServices = [
     { name: 'ipwho.is', fn: tryIpWhois },
     { name: 'ipapi.is', fn: tryIpApiIs },
-    { name: 'ipinfo.io', fn: tryIpInfo },
-    { name: 'ip-api.com', fn: tryIpApiFields },
-    { name: 'geoplugin.net', fn: tryGeoPlugin },
   ];
 
-  for (const service of services) {
-    console.log(`Trying ${service.name}...`);
+  for (const service of fallbackServices) {
+    console.log(`Trying fallback: ${service.name}...`);
     const result = await service.fn();
     if (result && result.city && result.latitude && result.longitude) {
       console.log(`Location detected via ${service.name}:`, result);
       return result;
     }
-    console.log(`${service.name} failed or returned incomplete data`);
   }
 
   console.warn('All geolocation services failed, using fallback location');
